@@ -31,9 +31,9 @@ RRT::RRT()
     scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       scan_topic, 1, std::bind(&RRT::scan_callback, this, std::placeholders::_1));
 
-    grid_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/occupancy_grid", 10);
-    path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/chosen_path", 10);
-    goal_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/goal_point", 10);
+    grid_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/occupancy_grid", 1);
+    path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/chosen_path", 1);
+    goal_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/goal_point", 1);
 
     // TODO: create a occupancy grid
     occ_grid = nav_msgs::msg::OccupancyGrid();
@@ -71,8 +71,6 @@ void RRT::scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_m
         int idx_x = (int) x;
         int idx_y = (int) y + (int)( map_wid_px );
 
-        occ_grid.data[0] = (char)50;
-
         for(int j = -dilation; j <= dilation; j++ ) {
             for(int k = -dilation; k <= dilation; k++) {
                 
@@ -82,7 +80,7 @@ void RRT::scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_m
                 // Check boundaries
                 if(x_idx < 0 || x_idx >= map_y || y_idx < 0 || y_idx >= map_x) continue;
 
-                int idx = y_idx + x_idx * map_y;
+                int idx = x_idx + y_idx * map_y;
                 // Ensure idx is within the grid
                 // if(idx >= 0 && idx < total_boxes) {
                 occ_grid.data[idx] = 100;
@@ -119,7 +117,7 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
     heading of car is x
     side-to-side is y
     */
-    publish_goal( map_x * map_resolution , 0);
+    publish_goal( map_y * map_resolution , 0);
 
     // TODO: fill in the RRT main loop
     for( int i = 0; i < num_nodes; i++){
@@ -135,21 +133,19 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
         // publish_goal(sample_[0], sample_[1]);
 
         if( !check_collision(tree[nearest_idx], new_node) ){
+
             tree.push_back(new_node);
-        // std::cout << tree.size() << std::endl;
+            // std::cout << tree.size() << std::endl;
+            if( is_goal(new_node, map_y * map_resolution, 0) ){
+                std::cout << "FOUND GOAL!!!!!!!" << std::endl;
+                std::vector<RRT_Node> path = find_path(tree, new_node);
+                // std::cout << "constructed path :)" << std::endl;
+                publish_path(path);
+                return;
+            }
         }
-        else{ continue; }
-
-        if( is_goal(new_node, map_x * map_resolution, 0) ){
-            std::cout << "FOUND GOAL!!!!!!!" << std::endl;
-            std::vector<RRT_Node> path = find_path(tree, new_node);
-            // std::cout << "constructed path :)" << std::endl;
-            publish_path(path);
-            break;
-        }
-    }
     // path found as Path message
-
+    }
 }
 
 void RRT::publish_goal(const double& goal_x, const double& goal_y )
@@ -319,15 +315,14 @@ bool RRT::check_collision(RRT_Node &nearest_node, RRT_Node &new_node) {
     // Returns:
     //    collision (bool): true if in collision, false otherwise
 
-    // bool collision = false; 
 
     // check if node is oob
     // if(new_node.x < 0 || new_node.x > map_x*map_resolution) return true;
     // if(new_node.y < -map_wid_m || new_node.y > map_wid_m) return true;
 
     // find a and b in the pixel world
-    std::vector<double> a = { (new_node.y + map_wid_m ) / map_resolution, new_node.x / map_resolution };
-    std::vector<double> b = { (nearest_node.y + map_wid_m ) / map_resolution, nearest_node.x / map_resolution };
+    std::vector<double> a = { new_node.x / map_resolution, new_node.y / map_resolution + map_wid_px};
+    std::vector<double> b = { nearest_node.x / map_resolution, nearest_node.y / map_resolution + map_wid_px };
 
     // set up bresenhams 
     double dy = std::abs(a[1] - b[1]);
@@ -337,7 +332,6 @@ bool RRT::check_collision(RRT_Node &nearest_node, RRT_Node &new_node) {
     int i = dx > dy ? 0 : 1;
     int j = dx > dy ? 1 : 0;
 
-    // 
     if( a[i] > b[i] ){
         std::swap(a, b);
     }
@@ -350,44 +344,59 @@ bool RRT::check_collision(RRT_Node &nearest_node, RRT_Node &new_node) {
         double w = ( u - a[i] ) / ( b[i] - a[i] );
         double v = w * ( b[j] - a[j] ) + a[j];
 
-        double x_idx = std::floor(u); // px center -> px
-        double y_idx = std::floor(v); // px center -> px
+        double idx_x = std::floor(u); // px center -> px
+        double idx_y = std::floor(v); // px center -> px
+
+        if( dx < dy ){
+            std::swap(idx_x, idx_y);
+        }
 
         // check if occupied
-        int idx = x_idx + y_idx * map_y;
-        
+        int idx = idx_x + idx_y * map_y;
+        if( idx < 0 || idx >= total_boxes ) continue;
 
-        if( occ_grid.data[idx] == 0 ){
-            cout <<  (occ_grid.data[idx] == 0) << " /// " << (occ_grid.data[0] == 50) << endl;
-            visualization_msgs::msg::Marker goal_marker = visualization_msgs::msg::Marker();
-            goal_marker.header.frame_id = "ego_racecar/base_link";
-            goal_marker.header.stamp = this->now();
-            goal_marker.action = 0;
-            goal_marker.ns = "markers";
-            goal_marker.type = 2;
-            goal_marker.id = 2;
+        for(int j = -dilation; j <= dilation; j++ ) {
+            for(int k = -dilation; k <= dilation; k++) {
+                
+                int x_idx = idx_x + j;
+                int y_idx = idx_y + k;
 
-            goal_marker.pose.position.x = new_node.x;
-            goal_marker.pose.position.y = new_node.y;
-            goal_marker.pose.position.z = 0.2;
+                int idx = x_idx + y_idx * map_y;
 
-            goal_marker.scale.x = 0.3;
-            goal_marker.scale.y = 0.3;
-            goal_marker.scale.z = 0.3;
+                if( occ_grid.data[idx] == 100 ){
 
-            goal_marker.color.r = 0.0; 
-            goal_marker.color.g = 0.0; 
-            goal_marker.color.b = 1.0;
-            goal_marker.color.a = 1.0;
+                    // visualization_msgs::msg::Marker goal_marker = visualization_msgs::msg::Marker();
+                    // goal_marker.header.frame_id = "ego_racecar/base_link";
+                    // goal_marker.header.stamp = this->now();
+                    // goal_marker.action = 0;
+                    // goal_marker.ns = "markers";
+                    // goal_marker.type = 1;
+                    // goal_marker.id = 2;
 
-            goal_pub_->publish(goal_marker);
+                    // goal_marker.pose.position.x = x_idx * map_resolution;
+                    // goal_marker.pose.position.y = y_idx * map_resolution - map_wid_m;
+                    // goal_marker.pose.position.z = 0.2;
 
-            return false;
-        } 
+                    // goal_marker.scale.x = 0.3;
+                    // goal_marker.scale.y = 0.3;
+                    // goal_marker.scale.z = 0.3;
+
+                    // goal_marker.color.r = 0.0; 
+                    // goal_marker.color.g = 0.0; 
+                    // goal_marker.color.b = 1.0;
+                    // goal_marker.color.a = 1.0;
+
+                    // goal_pub_->publish(goal_marker);
+
+                    return true; 
+                    }
+            }
+        }
 
     } 
+    // cout << endl;
 
-    return true;
+    return false;
 
 }
 

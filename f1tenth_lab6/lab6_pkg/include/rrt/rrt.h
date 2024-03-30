@@ -62,8 +62,8 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
 
     // hyperparams
-    double map_x = 300.0; // x is y and y is x
-    double map_y = 300.0; // x is y and y is x
+    double map_x = 420.0; // width of occ 
+    double map_y = 300.0; // beight of occ
     double map_resolution = 0.01;
     const int total_boxes = std::floor( ( map_x * map_y ) ); 
 
@@ -72,8 +72,8 @@ private:
 
     int dilation = 8;
 
-    int num_nodes = 3000;
-    double max_expansion_dist = 0.1;
+    int num_nodes = 2000;
+    double max_expansion_dist = 0.3;
 
     double goal_threshold = 0.2;
 
