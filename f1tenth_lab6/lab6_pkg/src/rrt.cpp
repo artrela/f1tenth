@@ -81,7 +81,6 @@ void RRT::scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_m
                 if(x_idx < 0 || x_idx >= map_y || y_idx < 0 || y_idx >= map_x) continue;
 
                 int idx = x_idx + y_idx * map_y;
-                // Ensure idx is within the grid
                 // if(idx >= 0 && idx < total_boxes) {
                 occ_grid.data[idx] = 100;
             }
@@ -128,18 +127,13 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
 
         RRT_Node new_node = steer(tree[nearest_idx], sample_);
         new_node.parent = nearest_idx;
-        // std::cout << ">> new_node.x: " << new_node.x << "new node y: " << new_node.y << std::endl;
-
-        // publish_goal(sample_[0], sample_[1]);
 
         if( !check_collision(tree[nearest_idx], new_node) ){
 
             tree.push_back(new_node);
-            // std::cout << tree.size() << std::endl;
+            
             if( is_goal(new_node, map_y * map_resolution, 0) ){
-                std::cout << "FOUND GOAL!!!!!!!" << std::endl;
                 std::vector<RRT_Node> path = find_path(tree, new_node);
-                // std::cout << "constructed path :)" << std::endl;
                 publish_path(path);
                 return;
             }
@@ -177,8 +171,6 @@ void RRT::publish_goal(const double& goal_x, const double& goal_y )
 
 void RRT::publish_path(const std::vector<RRT_Node>& path ){
 
-    // std::cout << "im here to publish ur path <3 " << path.size() << std::endl;
-
     nav_msgs::msg::Path path_msg = nav_msgs::msg::Path();
     path_msg.header.frame_id = "ego_racecar/base_link";
 
@@ -206,7 +198,6 @@ std::vector<double> RRT::sample() {
     //     sampled_point (std::vector<double>): the sampled point in free space
 
     // std::vector<double> sampled_point;
-    // TODO: fill in this method
     // look up the documentation on how to use std::mt19937 devices with a distribution
     // the generator and the distribution is created for you (check the header file)
 
@@ -263,27 +254,6 @@ RRT_Node RRT::steer(RRT_Node &nearest_node, std::vector<double> &sampled_point) 
     // Returns:
     //    new_node (RRT_Node): new node created from steering
 
-    // RRT_Node new_node;
-
-    // new_node.x = sampled_point[0];
-    // new_node.y = sampled_point[1];
-
-    // double dist = norm(nearest_node, new_node);
-
-    // if( dist < max_expansion_dist ){
-    //     return new_node;
-    // }
-
-    // Vec2 new_pose(new_node.x - nearest_node.x, new_node.y - nearest_node.y);
-    
-    // new_pose.x /= dist * max_expansion_dist;
-    // new_pose.y /= dist * max_expansion_dist;
-
-    // new_node.x = new_pose.x + nearest_node.x;
-    // new_node.y = new_pose.y + nearest_node.y;
-
-    // return new_node;
-
     RRT_Node new_node;
 
     // Direction vector from nearest_node to sampled_point
@@ -314,11 +284,6 @@ bool RRT::check_collision(RRT_Node &nearest_node, RRT_Node &new_node) {
     //    new_node (RRT_Node): new node created from steering
     // Returns:
     //    collision (bool): true if in collision, false otherwise
-
-
-    // check if node is oob
-    // if(new_node.x < 0 || new_node.x > map_x*map_resolution) return true;
-    // if(new_node.y < -map_wid_m || new_node.y > map_wid_m) return true;
 
     // find a and b in the pixel world
     std::vector<double> a = { new_node.x / map_resolution, new_node.y / map_resolution + map_wid_px};
@@ -355,49 +320,13 @@ bool RRT::check_collision(RRT_Node &nearest_node, RRT_Node &new_node) {
         int idx = idx_x + idx_y * map_y;
         if( idx < 0 || idx >= total_boxes ) continue;
 
-        for(int j = -dilation; j <= dilation; j++ ) {
-            for(int k = -dilation; k <= dilation; k++) {
-                
-                int x_idx = idx_x + j;
-                int y_idx = idx_y + k;
-
-                int idx = x_idx + y_idx * map_y;
-
-                if( occ_grid.data[idx] == 100 ){
-
-                    // visualization_msgs::msg::Marker goal_marker = visualization_msgs::msg::Marker();
-                    // goal_marker.header.frame_id = "ego_racecar/base_link";
-                    // goal_marker.header.stamp = this->now();
-                    // goal_marker.action = 0;
-                    // goal_marker.ns = "markers";
-                    // goal_marker.type = 1;
-                    // goal_marker.id = 2;
-
-                    // goal_marker.pose.position.x = x_idx * map_resolution;
-                    // goal_marker.pose.position.y = y_idx * map_resolution - map_wid_m;
-                    // goal_marker.pose.position.z = 0.2;
-
-                    // goal_marker.scale.x = 0.3;
-                    // goal_marker.scale.y = 0.3;
-                    // goal_marker.scale.z = 0.3;
-
-                    // goal_marker.color.r = 0.0; 
-                    // goal_marker.color.g = 0.0; 
-                    // goal_marker.color.b = 1.0;
-                    // goal_marker.color.a = 1.0;
-
-                    // goal_pub_->publish(goal_marker);
-
-                    return true; 
-                    }
-            }
+        if( occ_grid.data[idx] == 100 ){
+            return true; 
         }
 
     } 
-    // cout << endl;
 
     return false;
-
 }
 
 bool RRT::is_goal(RRT_Node &latest_added_node, double goal_x, double goal_y) {
