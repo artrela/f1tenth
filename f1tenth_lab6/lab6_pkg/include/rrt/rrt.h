@@ -17,7 +17,9 @@
 #include "nav_msgs/msg/path.hpp"
 #include "ackermann_msgs/msg/ackermann_drive_stamped.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/point.hpp"
 #include "visualization_msgs/msg/marker.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include <tf2_ros/transform_broadcaster.h>
 
@@ -55,8 +57,14 @@ private:
     // TODO: add the publishers and subscribers you need
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_pub_;
     nav_msgs::msg::OccupancyGrid occ_grid;
+
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr goal_pub_;
+
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr tree_pub_;
+
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr nodes_pub_;
+    visualization_msgs::msg::MarkerArray nodes_marker;
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -72,10 +80,12 @@ private:
 
     int dilation = 8;
 
-    int num_nodes = 2000;
-    double max_expansion_dist = 0.3;
+    int num_nodes = 3000;
+    double max_expansion_dist = 0.4;
 
     double goal_threshold = 0.2;
+
+    size_t delete_size = 0;
 
     // random generator, use this
     std::mt19937 gen;
@@ -103,6 +113,8 @@ private:
     //personal adds
     void publish_path(const std::vector<RRT_Node>& path );
     void publish_goal(const double& goal_x, const double& goal_y );
+    void publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree );
+
 
 
 };

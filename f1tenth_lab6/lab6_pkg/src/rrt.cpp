@@ -34,6 +34,10 @@ RRT::RRT()
     grid_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/occupancy_grid", 1);
     path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/chosen_path", 1);
     goal_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/goal_point", 1);
+    tree_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/tree", 1);
+    nodes_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/nodes", 1);
+
+    nodes_marker = visualization_msgs::msg::MarkerArray();
 
     // TODO: create a occupancy grid
     occ_grid = nav_msgs::msg::OccupancyGrid();
@@ -135,12 +139,124 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
             if( is_goal(new_node, map_y * map_resolution, 0) ){
                 std::vector<RRT_Node> path = find_path(tree, new_node);
                 publish_path(path);
+                publish_tree(path, tree);
                 return;
             }
         }
     // path found as Path message
     }
 }
+
+void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree ){
+
+    nodes_marker.markers.clear();
+    // nodes_pub_->publish(nodes_marker);
+
+    std::vector<std::vector<RRT_Node>> branches;
+    std::vector<int> visited;
+    // int id = 0;
+
+    for( size_t i = tree.size() - 1; i > 0; i--){
+
+        if( std::find(visited.begin(), visited.end(), i) != visited.end()) continue;
+
+        std::vector<RRT_Node> branch;
+        RRT_Node node = tree[i];
+        
+        while( !node.is_root ){
+
+            branch.push_back(node);
+            node = tree[node.parent];
+
+        }
+
+        branch.push_back(tree[0]);
+        branches.push_back(branch);
+
+    }
+
+    visualization_msgs::msg::Marker delete_marker = visualization_msgs::msg::Marker();
+    delete_marker.header.frame_id = "ego_racecar/base_link";
+    delete_marker.header.stamp = this->now();
+    delete_marker.action = 2; // delete all
+    delete_marker.ns = "tree";
+
+    for( size_t i = 0; i <= delete_size ; i++){
+        delete_marker.id = i;
+        tree_pub_->publish(delete_marker);
+    }
+
+
+    for(size_t i = 0 ; i < branches.size() ; i++){
+        
+        visualization_msgs::msg::Marker branch_marker = visualization_msgs::msg::Marker();
+        branch_marker.header.frame_id = "ego_racecar/base_link";
+        branch_marker.header.stamp = this->now();
+        branch_marker.action = 0;
+        branch_marker.ns = "tree";
+        branch_marker.id = i;
+        branch_marker.type = 4;
+
+        branch_marker.scale.x = 0.01;
+        branch_marker.color.a = 1.0;
+        branch_marker.color.r = 1.0;
+                
+        for( size_t j = 0 ; j < branches[i].size() ; j++ ){
+            
+
+            geometry_msgs::msg::Point p = geometry_msgs::msg::Point();
+            p.x = branches[i][j].x;
+            p.y = branches[i][j].y;
+            p.z = 0.05;
+
+            branch_marker.points.push_back(p);
+
+        }
+
+        tree_pub_->publish(branch_marker);
+
+    }
+
+    visualization_msgs::msg::Marker path_marker = visualization_msgs::msg::Marker();
+    path_marker.header.frame_id = "ego_racecar/base_link";
+    path_marker.header.stamp = this->now();
+    path_marker.action = 0; // delete all
+    path_marker.ns = "tree";
+    path_marker.id = branches.size();
+    path_marker.type = 4;
+    path_marker.scale.x = 0.03;
+    path_marker.color.a = 1.0;
+    path_marker.color.g = 1.0;
+
+    for( size_t i = 0 ; i < path.size() ; i++ ){
+            
+            geometry_msgs::msg::Point p = geometry_msgs::msg::Point();
+            p.x = path[i].x;
+            p.y = path[i].y;
+            p.z = 0.1;
+
+            path_marker.points.push_back(p);
+
+        }
+    
+    tree_pub_->publish(path_marker);
+
+
+    delete_marker = visualization_msgs::msg::Marker();
+    delete_marker.header.frame_id = "ego_racecar/base_link";
+    delete_marker.header.stamp = this->now();
+    delete_marker.action = 2; // delete all
+    delete_marker.ns = "tree";
+
+    for( size_t i = 0; i <= branches.size() ; i++){
+        delete_marker.id = i;
+        tree_pub_->publish(delete_marker);
+    }
+
+    delete_size = branches.size();
+
+}
+
 
 void RRT::publish_goal(const double& goal_x, const double& goal_y )
 {
@@ -227,7 +343,7 @@ int RRT::nearest(std::vector<RRT_Node> &tree, std::vector<double> &sampled_point
     node.x = sampled_point[0];
     node.y = sampled_point[1];
     
-    for(int n = 0; n < tree.size(); n++ ){
+    for(size_t n = 0; n < tree.size(); n++ ){
 
         double dist = norm(node, tree[n]);
         if( dist < closest.second ){
