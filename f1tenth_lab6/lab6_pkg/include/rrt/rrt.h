@@ -83,7 +83,7 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr wps_pub_;
     visualization_msgs::msg::MarkerArray wps_marker;
 
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
 
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
@@ -118,7 +118,7 @@ private:
 
     // callbacks
     // where rrt actually happens
-    void pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg);
+    void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr pose_msg);
     // updates occupancy grid
     void scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_msg);
 
@@ -138,7 +138,7 @@ private:
     void publish_path(const std::vector<RRT_Node>& path );
     void publish_goal(const double& goal_x, const double& goal_y );
     void publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree );
-    Waypoint find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::Odometry::ConstSharedPtr& pose_msg);
+    Waypoint find_goal(const std::vector<Waypoint>& wps, const geometry_msgs::msg::PoseStamped::ConstSharedPtr& pose_msg);
     void pure_pursuit(const std::vector<RRT_Node>& path );
 
 };

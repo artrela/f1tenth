@@ -25,10 +25,10 @@ RRT::RRT()
 
     // ROS subscribers
     // TODO: create subscribers as you need
-    string pose_topic = "ego_racecar/odom";
+    string pose_topic = "/pf/viz/inferred_pose";
     string scan_topic = "/scan";
 
-    pose_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       pose_topic, 1, std::bind(&RRT::pose_callback, this, std::placeholders::_1));
     scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       scan_topic, 1, std::bind(&RRT::scan_callback, this, std::placeholders::_1));
@@ -105,13 +105,13 @@ void RRT::scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_m
 
 }
 
-Waypoint RRT::find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::Odometry::ConstSharedPtr& pose_msg){
+Waypoint RRT::find_goal(const std::vector<Waypoint>& wps, const geometry_msgs::msg::PoseStamped::ConstSharedPtr& pose_msg){
 
     tf2::Quaternion quat(
-        pose_msg->pose.pose.orientation.x,
-        pose_msg->pose.pose.orientation.y,
-        pose_msg->pose.pose.orientation.z,
-        pose_msg->pose.pose.orientation.w
+        pose_msg->pose.orientation.x,
+        pose_msg->pose.orientation.y,
+        pose_msg->pose.orientation.z,
+        pose_msg->pose.orientation.w
     );
     // Convert geometry_msgs::Quaternion to tf2::Quaternion
 
@@ -120,7 +120,7 @@ Waypoint RRT::find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::O
     tf2::Matrix3x3 m(quat);
     m.getRPY(roll, pitch, yaw);
 
-    WayPoint current = {pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y};
+    WayPoint current = {pose_msg->pose.position.x, pose_msg->pose.position.y};
 
     Waypoint farthest;
     double farthest_dist = -std::numeric_limits<double>::max();
@@ -153,7 +153,7 @@ Waypoint RRT::find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::O
 
 }
 
-void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) {
+void RRT::pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr pose_msg) {
     // The pose callback when subscribed to particle filter's inferred pose
     // The RRT main loop happens here
     // Args:
