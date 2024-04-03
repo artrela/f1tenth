@@ -89,8 +89,8 @@ private:
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
 
     // hyperparams
-    double map_x = 420.0; // width of occ 
-    double map_y = 300.0; // beight of occ
+    double map_x = 300.0; // width of occ 
+    double map_y = 100.0; // beight of occ
     double map_resolution = 0.01;
     const int total_boxes = std::floor( ( map_x * map_y ) ); 
 
