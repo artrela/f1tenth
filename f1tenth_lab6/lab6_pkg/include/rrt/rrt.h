@@ -97,12 +97,12 @@ private:
     double map_wid_px = std::floor(map_x / 2.);
     double map_wid_m = map_wid_px * map_resolution;
 
-    int dilation = 8;
+    int dilation = 25;
 
     int num_nodes = 800;
     double max_expansion_dist = 0.5;
     
-    size_t delete_size = 0;
+    double goal_threshold = 0.2;
 
     vector<WayPoint> wps;
 

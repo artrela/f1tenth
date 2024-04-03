@@ -181,6 +181,7 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
     // new node starts at the center x pos in px centers
     root_node.x = 0;
     root_node.y = 0;
+    root_node.cost = 
     root_node.is_root = true;
     tree.push_back(root_node);    
 
@@ -197,8 +198,35 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
 
         if( !check_collision(tree[nearest_idx], new_node) ){
 
+            new_node.cost = tree[nearest_idx].cost + line_cost(tree[nearest_idx], new_node);
+
+            // connect along minimum cost path
+            std::vector<int> Xnear = near(tree, new_node);
+            for(const int& xnear : Xnear){
+
+                double near2new_cost = tree[xnear].cost + line_cost(tree[xnear], new_node);
+                
+                if( !check_collision(tree[xnear], new_node ) && near2new_cost < new_node.cost ){
+                    
+                    new_node.parent = xnear;
+                    new_node.cost = near2new_cost;
+
+                }  
+            }
             tree.push_back(new_node);
-            
+
+            // rewire
+            for(const int& xnear : Xnear){
+
+                double new2near_cost = new_node.cost + line_cost(tree[xnear], new_node);
+                if( !check_collision(tree[xnear], new_node ) && new2near_cost < tree[xnear].cost ){
+                    
+                    tree[xnear].parent = tree.size() - 1;
+                    tree[xnear].cost = new2near_cost;
+
+                }  
+            }
+
             if( is_goal(new_node, goal.x, goal.y) ){
                 std::vector<RRT_Node> path = find_path(tree, new_node);
                 publish_path(path);
@@ -209,6 +237,7 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
                 return;
             }
             else{
+               
                 if( TREE ){  
                     publish_tree(std::vector<RRT_Node>(), tree);
                 }
@@ -229,7 +258,6 @@ void RRT::pure_pursuit(const std::vector<RRT_Node>& path ){
         auto drive_msg = ackermann_msgs::msg::AckermannDriveStamped();
         drive_msg.drive.speed = 0.6;
         drive_msg.drive.steering_angle = max(-clip_val, min(gamma*P, clip_val));
-        cout << drive_msg.drive.steering_angle << endl;
         drive_pub_->publish(drive_msg);
 
     }
@@ -241,12 +269,12 @@ void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_
 
 
     std::vector<std::vector<RRT_Node>> branches;
-    std::vector<int> visited;
+    // std::vector<int> visited;
     // int id = 0;
 
     for( size_t i = tree.size() - 1; i > 0; i--){
 
-        if( std::find(visited.begin(), visited.end(), i) != visited.end()) continue;
+        // if( std::find(visited.begin(), visited.end(), i) != visited.end()) continue;
 
         std::vector<RRT_Node> branch;
         RRT_Node node = tree[i];
@@ -574,6 +602,11 @@ double RRT::cost(std::vector<RRT_Node> &tree, RRT_Node &node) {
 
     double cost = 0;
     // TODO: fill in this method
+    do{
+        cost += node.cost;
+        node = tree[node.parent];
+    }
+    while(!node.is_root);
 
     return cost;
 }
@@ -586,13 +619,12 @@ double RRT::line_cost(RRT_Node &n1, RRT_Node &n2) {
     // Returns:
     //    cost (double): the cost value associated with the path
 
-    double cost = 0;
-    // TODO: fill in this method
+    double cost = std::sqrt((n1.x-n2.x)*(n1.x-n2.x) + (n1.y-n2.y)*(n1.y-n2.y));
 
     return cost;
 }
 
-std::vector<int> RRT::near(std::vector<RRT_Node> &tree, RRT_Node &node) {
+std::vector<int> RRT::near(std::vector<RRT_Node>& tree, RRT_Node &node) {
     // This method returns the set of Nodes in the neighborhood of a 
     // node.
     // Args:
@@ -604,6 +636,12 @@ std::vector<int> RRT::near(std::vector<RRT_Node> &tree, RRT_Node &node) {
     std::vector<int> neighborhood;
     // TODO:: fill in this method
 
+    for (size_t i = 0; i < tree.size(); ++i) {
+        double distance = std::sqrt(std::pow(tree[i].x - node.x, 2) + std::pow(tree[i].y - node.y, 2));
+        if (distance < max_expansion_dist * 2.) {
+            neighborhood.push_back(i);
+        }
+    }
     return neighborhood;
 }
 
