@@ -4,7 +4,7 @@
 
 #include "rrt/rrt.h"
 
-#define TREE false
+#define TREE true
 
 // Destructor of the RRT class
 RRT::~RRT() {
@@ -38,6 +38,7 @@ RRT::RRT()
     goal_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/goal_point", 1);
     tree_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tree", 1);
     wps_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/waypoints", 1);
+    drive_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("/drive", 1);
 
     wps_marker = visualization_msgs::msg::MarkerArray();
     parse_wps("/sim_ws/wp.csv", wps, wps_marker);
@@ -133,7 +134,7 @@ Waypoint RRT::find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::O
         double y = -goal.x*sin(yaw) + goal.y*cos(yaw);
 
         goal.x = x;
-        goal.y = y;
+        goal.y = -y; // positive y is left
 
         // ensure x, y is within the correct bounds
         if( x < 0 || x > (map_y * map_resolution)) continue;
@@ -169,7 +170,9 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
     side-to-side is y
     */
     Waypoint goal = find_goal(wps, pose_msg);
-    publish_goal( goal.x , goal.y);
+
+    // y frame from marker and y frame for planning are swapped, hence -y
+    publish_goal( goal.x , -goal.y);
 
     // tree as std::vector
     std::vector<RRT_Node> tree;
@@ -187,6 +190,7 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
         // sample a pixel center within the occupancy grid
         std::vector<double> sample_ = sample();
         int nearest_idx = nearest(tree, sample_);
+        // publish_goal(sample_[0], sample_[1]);
 
         RRT_Node new_node = steer(tree[nearest_idx], sample_);
         new_node.parent = nearest_idx;
@@ -198,6 +202,7 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
             if( is_goal(new_node, goal.x, goal.y) ){
                 std::vector<RRT_Node> path = find_path(tree, new_node);
                 publish_path(path);
+                pure_pursuit(path);
                 if( TREE ){
                     publish_tree(path, tree);
                 }
@@ -212,6 +217,25 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
     // path found as Path message
     }
 }
+
+void RRT::pure_pursuit(const std::vector<RRT_Node>& path ){
+
+    for(int i = path.size() - 1; i >= 0 ; i--){
+
+        // TODO: calculate curvature/steering angle
+        float gamma = 2.f * path[i].y / pow(max_expansion_dist, 2.f);
+
+        // TODO: publish drive message, don't forget to limit the steering angle.
+        auto drive_msg = ackermann_msgs::msg::AckermannDriveStamped();
+        drive_msg.drive.speed = 0.6;
+        drive_msg.drive.steering_angle = max(-clip_val, min(gamma*P, clip_val));
+        cout << drive_msg.drive.steering_angle << endl;
+        drive_pub_->publish(drive_msg);
+
+    }
+
+}
+
 
 void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree ){
 
@@ -400,7 +424,7 @@ int RRT::nearest(std::vector<RRT_Node> &tree, std::vector<double> &sampled_point
     
     for(size_t n = 0; n < tree.size(); n++ ){
 
-        double dist = norm(node, tree[n]);
+        double dist = std::sqrt((node.x-tree[n].x)*(node.x-tree[n].x) + (node.y-tree[n].y)*(node.y-tree[n].y));
         if( dist < closest.second ){
             closest.first = n;
             closest.second = dist;

@@ -86,6 +86,8 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
 
+    rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
+
     // hyperparams
     double map_x = 420.0; // width of occ 
     double map_y = 300.0; // beight of occ
@@ -97,14 +99,17 @@ private:
 
     int dilation = 8;
 
-    int num_nodes = 3000;
-    double max_expansion_dist = 0.4;
-
-    double goal_threshold = 0.2;
-
+    int num_nodes = 800;
+    double max_expansion_dist = 0.5;
+    
     size_t delete_size = 0;
 
     vector<WayPoint> wps;
+
+    // hyperparams
+    float P = 0.4; // p gain
+    float clip_val = M_PI / 2;
+    float speed = 1.0;
 
     // random generator, use this
     std::mt19937 gen;
@@ -134,6 +139,7 @@ private:
     void publish_goal(const double& goal_x, const double& goal_y );
     void publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree );
     Waypoint find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::Odometry::ConstSharedPtr& pose_msg);
+    void pure_pursuit(const std::vector<RRT_Node>& path );
 
 };
 
