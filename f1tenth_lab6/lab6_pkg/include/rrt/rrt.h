@@ -10,6 +10,8 @@
 #include <cmath>
 #include <vector>
 #include <random>
+#include <fstream>
+#include <functional>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -22,6 +24,9 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include <tf2_ros/transform_broadcaster.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/convert.h>
 
 /// CHECK: include needed ROS msg type headers and libraries
 
@@ -41,12 +46,24 @@ inline double norm(RRT_Node a, RRT_Node b){
     return pow( pow(a.x - b.x, 2) + pow(a.y + b.y, 2), 0.5 );
 }
 
+typedef struct WayPoint{
+
+    double x;
+    double y;
+
+    // Function to calculate the distance to another Waypoint
+    double distanceTo(WayPoint& other) const {
+        return std::sqrt(std::pow(other.x - x, 2) + std::pow(other.y - y, 2));
+    }
+} Waypoint;
+
 
 typedef struct Vec2{
     double x, y;
     Vec2(float x, float y) : x(x), y(y) {}
 } Vec2;
 
+inline void parse_wps(const std::string& fname, vector<WayPoint>& wps, visualization_msgs::msg::MarkerArray& wps_viz);
 
 class RRT : public rclcpp::Node {
 public:
@@ -61,10 +78,10 @@ private:
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr goal_pub_;
 
-    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr tree_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr tree_pub_;
 
-    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr nodes_pub_;
-    visualization_msgs::msg::MarkerArray nodes_marker;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr wps_pub_;
+    visualization_msgs::msg::MarkerArray wps_marker;
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -86,6 +103,8 @@ private:
     double goal_threshold = 0.2;
 
     size_t delete_size = 0;
+
+    vector<WayPoint> wps;
 
     // random generator, use this
     std::mt19937 gen;
@@ -114,8 +133,7 @@ private:
     void publish_path(const std::vector<RRT_Node>& path );
     void publish_goal(const double& goal_x, const double& goal_y );
     void publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree );
-
-
+    Waypoint find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::Odometry::ConstSharedPtr& pose_msg);
 
 };
 

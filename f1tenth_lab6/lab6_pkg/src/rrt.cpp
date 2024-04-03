@@ -4,6 +4,8 @@
 
 #include "rrt/rrt.h"
 
+#define TREE false
+
 // Destructor of the RRT class
 RRT::~RRT() {
     // Do something in here, free up used memory, print message, etc.
@@ -34,10 +36,11 @@ RRT::RRT()
     grid_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/occupancy_grid", 1);
     path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/chosen_path", 1);
     goal_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/goal_point", 1);
-    tree_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/tree", 1);
-    nodes_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/nodes", 1);
+    tree_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/tree", 1);
+    wps_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/waypoints", 1);
 
-    nodes_marker = visualization_msgs::msg::MarkerArray();
+    wps_marker = visualization_msgs::msg::MarkerArray();
+    parse_wps("/sim_ws/wp.csv", wps, wps_marker);
 
     // TODO: create a occupancy grid
     occ_grid = nav_msgs::msg::OccupancyGrid();
@@ -67,13 +70,17 @@ void RRT::scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_m
 
     for( size_t i = 0; i < scan_msg->ranges.size(); i++ ){
 
-        float theta = i * scan_msg->angle_increment + scan_msg->angle_min;
+        float theta = (i * scan_msg->angle_increment + scan_msg->angle_min);
+
+        if(theta < -M_PI/2 || theta > M_PI/2 ) continue;
 
         double x = std::floor( scan_msg->ranges[i] * std::cos(theta) / map_resolution ) ;
         double y = std::floor( scan_msg->ranges[i] * std::sin(theta) / map_resolution ) ;
 
-        int idx_x = (int) x;
+        int idx_x = (int) x; //- (int)( std::floor( map_y ) );
         int idx_y = (int) y + (int)( map_wid_px );
+        // int idx_y = (int) y + (iint)( std::floor( map_y / 2.) );
+        if(idx_x < 0 || idx_x >= map_y || idx_y < 0 || idx_y >= map_x) continue;
 
         for(int j = -dilation; j <= dilation; j++ ) {
             for(int k = -dilation; k <= dilation; k++) {
@@ -97,6 +104,54 @@ void RRT::scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_m
 
 }
 
+Waypoint RRT::find_goal(const std::vector<Waypoint>& wps, const nav_msgs::msg::Odometry::ConstSharedPtr& pose_msg){
+
+    tf2::Quaternion quat(
+        pose_msg->pose.pose.orientation.x,
+        pose_msg->pose.pose.orientation.y,
+        pose_msg->pose.pose.orientation.z,
+        pose_msg->pose.pose.orientation.w
+    );
+    // Convert geometry_msgs::Quaternion to tf2::Quaternion
+
+    // Convert quaternion to roll, pitch, yaw
+    double roll, pitch, yaw;
+    tf2::Matrix3x3 m(quat);
+    m.getRPY(roll, pitch, yaw);
+
+    WayPoint current = {pose_msg->pose.pose.position.x, pose_msg->pose.pose.position.y};
+
+    Waypoint farthest;
+    double farthest_dist = -std::numeric_limits<double>::max();
+
+    for( const WayPoint& wp : wps){
+
+        // yaw is the theta we're interested in
+        Waypoint goal = {wp.x - current.x, wp.y - current.y};
+        
+        double x =  goal.y*sin(yaw) + goal.x*cos(yaw);
+        double y = -goal.x*sin(yaw) + goal.y*cos(yaw);
+
+        goal.x = x;
+        goal.y = y;
+
+        // ensure x, y is within the correct bounds
+        if( x < 0 || x > (map_y * map_resolution)) continue;
+        if( y > map_wid_m || y < -map_wid_m ) continue;
+
+        double dist = std::sqrt( x*x + y*y );
+
+        if(dist > farthest_dist){
+            farthest_dist = dist;
+            farthest = goal;
+        }
+
+    }
+
+    return farthest;
+
+}
+
 void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) {
     // The pose callback when subscribed to particle filter's inferred pose
     // The RRT main loop happens here
@@ -104,6 +159,17 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
     //    pose_msg (*PoseStamped): pointer to the incoming pose message
     // Returns:
     //
+
+    wps_pub_->publish(wps_marker);
+
+    // Waypoint goal = find_goal(wps, pose_msg);
+    /*
+    Goal is in meters:
+    heading of car is x
+    side-to-side is y
+    */
+    Waypoint goal = find_goal(wps, pose_msg);
+    publish_goal( goal.x , goal.y);
 
     // tree as std::vector
     std::vector<RRT_Node> tree;
@@ -113,14 +179,7 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
     root_node.x = 0;
     root_node.y = 0;
     root_node.is_root = true;
-    tree.push_back(root_node);
-
-    /*
-    Goal is in meters:
-    heading of car is x
-    side-to-side is y
-    */
-    publish_goal( map_y * map_resolution , 0);
+    tree.push_back(root_node);    
 
     // TODO: fill in the RRT main loop
     for( int i = 0; i < num_nodes; i++){
@@ -136,11 +195,18 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
 
             tree.push_back(new_node);
             
-            if( is_goal(new_node, map_y * map_resolution, 0) ){
+            if( is_goal(new_node, goal.x, goal.y) ){
                 std::vector<RRT_Node> path = find_path(tree, new_node);
                 publish_path(path);
-                publish_tree(path, tree);
+                if( TREE ){
+                    publish_tree(path, tree);
+                }
                 return;
+            }
+            else{
+                if( TREE ){  
+                    publish_tree(std::vector<RRT_Node>(), tree);
+                }
             }
         }
     // path found as Path message
@@ -149,8 +215,6 @@ void RRT::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) 
 
 void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_Node>& tree ){
 
-    nodes_marker.markers.clear();
-    // nodes_pub_->publish(nodes_marker);
 
     std::vector<std::vector<RRT_Node>> branches;
     std::vector<int> visited;
@@ -175,17 +239,20 @@ void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_
 
     }
 
+    visualization_msgs::msg::MarkerArray delete_array = visualization_msgs::msg::MarkerArray();
     visualization_msgs::msg::Marker delete_marker = visualization_msgs::msg::Marker();
     delete_marker.header.frame_id = "ego_racecar/base_link";
     delete_marker.header.stamp = this->now();
-    delete_marker.action = 2; // delete all
+    delete_marker.action = 3; // delete all
     delete_marker.ns = "tree";
+    delete_array.markers.push_back(delete_marker);
 
-    for( size_t i = 0; i <= delete_size ; i++){
-        delete_marker.id = i;
-        tree_pub_->publish(delete_marker);
-    }
+    // for( size_t i = 0; i <= delete_size ; i++){
+        // delete_marker.id = i;
+    tree_pub_->publish(delete_array);
+    // }
 
+    visualization_msgs::msg::MarkerArray tree_marker = visualization_msgs::msg::MarkerArray();
 
     for(size_t i = 0 ; i < branches.size() ; i++){
         
@@ -203,7 +270,6 @@ void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_
                 
         for( size_t j = 0 ; j < branches[i].size() ; j++ ){
             
-
             geometry_msgs::msg::Point p = geometry_msgs::msg::Point();
             p.x = branches[i][j].x;
             p.y = branches[i][j].y;
@@ -213,47 +279,36 @@ void RRT::publish_tree(const std::vector<RRT_Node>& path, const std::vector<RRT_
 
         }
 
-        tree_pub_->publish(branch_marker);
+        tree_marker.markers.push_back(branch_marker);
 
     }
+    
+    // add the chosen path
+    if( !path.empty() ){
+        visualization_msgs::msg::Marker path_marker = visualization_msgs::msg::Marker();
+        path_marker.header.frame_id = "ego_racecar/base_link";
+        path_marker.header.stamp = this->now();
+        path_marker.action = 0; // delete all
+        path_marker.ns = "tree";
+        path_marker.id = branches.size();
+        path_marker.type = 4;
+        path_marker.scale.x = 0.03;
+        path_marker.color.a = 1.0;
+        path_marker.color.g = 1.0;
 
-    visualization_msgs::msg::Marker path_marker = visualization_msgs::msg::Marker();
-    path_marker.header.frame_id = "ego_racecar/base_link";
-    path_marker.header.stamp = this->now();
-    path_marker.action = 0; // delete all
-    path_marker.ns = "tree";
-    path_marker.id = branches.size();
-    path_marker.type = 4;
-    path_marker.scale.x = 0.03;
-    path_marker.color.a = 1.0;
-    path_marker.color.g = 1.0;
+        for( size_t i = 0 ; i < path.size() ; i++ ){
+                
+                geometry_msgs::msg::Point p = geometry_msgs::msg::Point();
+                p.x = path[i].x;
+                p.y = path[i].y;
+                p.z = 0.1;
 
-    for( size_t i = 0 ; i < path.size() ; i++ ){
-            
-            geometry_msgs::msg::Point p = geometry_msgs::msg::Point();
-            p.x = path[i].x;
-            p.y = path[i].y;
-            p.z = 0.1;
-
-            path_marker.points.push_back(p);
+                path_marker.points.push_back(p);
 
         }
-    
-    tree_pub_->publish(path_marker);
-
-
-    delete_marker = visualization_msgs::msg::Marker();
-    delete_marker.header.frame_id = "ego_racecar/base_link";
-    delete_marker.header.stamp = this->now();
-    delete_marker.action = 2; // delete all
-    delete_marker.ns = "tree";
-
-    for( size_t i = 0; i <= branches.size() ; i++){
-        delete_marker.id = i;
-        tree_pub_->publish(delete_marker);
+        tree_marker.markers.push_back(path_marker);
     }
-
-    delete_size = branches.size();
+    tree_pub_->publish(tree_marker);
 
 }
 
@@ -527,3 +582,67 @@ std::vector<int> RRT::near(std::vector<RRT_Node> &tree, RRT_Node &node) {
 
     return neighborhood;
 }
+
+inline void parse_wps(const std::string& fname, vector<WayPoint>& wps, visualization_msgs::msg::MarkerArray& wps_viz){
+
+        ifstream file(fname);
+
+        if (!file.is_open()) {
+            std::cerr << "Failed to open file: " << fname << std::endl;
+            return; // Exit the function if the file couldn't be opened
+        }
+        else{
+            std::cout << "Opened: " << fname << std::endl;
+        }
+
+        // Read data
+        string line;
+        int id = 0;
+
+        int counter = 0;
+
+        while (getline(file, line)) {
+
+            ++counter;
+            if (counter % 200 != 0) continue;
+
+            stringstream ss(line);
+            string cell;
+
+            WayPoint wp;
+
+            // Read x coordinate
+            getline(ss, cell, ',');
+            wp.x = stod(cell); 
+
+            // Read y coordinate
+            getline(ss, cell, ',');
+            wp.y = stod(cell); 
+
+            // Add the waypoint to the vector
+            wps.push_back(wp);
+
+            // make waypoint marker
+            visualization_msgs::msg::Marker wp_viz;
+            wp_viz.header.frame_id = "map";
+            wp_viz.type = visualization_msgs::msg::Marker::CYLINDER;
+            wp_viz.id = id++;
+            wp_viz.pose.position.x = wp.x;
+            wp_viz.pose.position.y = wp.y;
+            wp_viz.scale.x = 0.1; 
+            wp_viz.scale.y = 0.1; 
+            wp_viz.scale.z = 0.1;
+            wp_viz.color.a = 1.0;
+            wp_viz.color.r = 0.0;
+            wp_viz.color.g = 1.0;
+            wp_viz.color.b = 0.0;
+
+            // save marker values
+            wps_viz.markers.push_back(wp_viz);
+
+        }
+
+        std::cout << wps_viz.markers.size() << " waypoints added to track!" << std::endl;
+        file.close();
+
+    }

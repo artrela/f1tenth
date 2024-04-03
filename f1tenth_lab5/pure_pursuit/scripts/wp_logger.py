@@ -13,10 +13,11 @@ import atexit
 from scipy.interpolate import splprep, splev
 
 # TODO CHECK: include needed ROS msg type headers and libraries
-wps = []
+# wps = []
 topic = 'ego_racecar/odom'
 save_loc = os.path.dirname(os.path.abspath(__file__))
 save_loc = os.path.join(save_loc + "/../")
+file = open('wp.csv', 'w')
 
 class WaypointLogger(Node):
     """ 
@@ -34,62 +35,68 @@ class WaypointLogger(Node):
         self.subscription  # prevent unused variable warning
 
         
-        print(f"Saving Waypoints to: {os.getcwd()}")
+        print(f"Saving Waypoints to: wps.csv")
     
     def save_waypoint(self, data):
 
-        wps.append((data.pose.pose.position.x,
-                        data.pose.pose.position.y,))   
+        # wps.append((data.pose.pose.position.x,
+                        # data.pose.pose.position.y,))   
+        file.write('%f, %f\n' % (data.pose.pose.position.x, data.pose.pose.position.y))
+        
+def shutdown():
+    file.close()
 
-def log_csv():
-    global wps
+# def log_csv():
+#     global wps
     
-    wps = np.array(wps) 
+#     wps = np.array(wps) 
 
-    # Quick check for duplicate points
-    if len(np.unique(wps, axis=0)) != len(wps):
-        print("There are duplicate points, removing them.")
-        wps = np.unique(wps, axis=0)
+#     # Quick check for duplicate points
+#     # if len(np.unique(wps, axis=0)) != len(wps):
+#     #     print("There are duplicate points, removing them.")
+#     #     wps = np.unique(wps, axis=0)
          
-    tck, u = splprep([wps[:, 0], wps[:, 1]], s=0)
-    new_points = splev(u, tck)
+#     # tck, u = splprep([wps[:, 0], wps[:, 1]], s=0)
+#     # new_points = splev(u, tck)
 
-    fig, ax = plt.subplots()
+#     # fig, ax = plt.subplots()
     
-    ax.set_title("Waypoints Plotted")
-    ax.set_aspect('equal')
-    ax.plot(wps[:, 0], wps[:, 1], 'ro', label="orig wps")
-    ax.plot(new_points[0], new_points[1], 'b+', label="interp wps") 
-    ax.legend()
+#     # ax.set_title("Waypoints Plotted")
+#     # ax.set_aspect('equal')
+#     # ax.plot(wps[:, 0], wps[:, 1], 'ro', label="orig wps")
+#     # ax.plot(new_points[0], new_points[1], 'b+', label="interp wps") 
+#     # ax.legend()
 
-    plt.savefig(save_loc + "wps_viz.png")
+#     # plt.savefig(save_loc + "wps_viz.png")
 
-    file_orig = open(save_loc + 'wp.csv', 'w')
-    file_interp = open(save_loc + 'wp_interp.csv', 'w')
+#     file_orig = open('wp.csv', 'w')
+#     # file_interp = open(save_loc + '/wp_interp.csv', 'w')
 
-    for d1, d2 in zip(wps, new_points):
-        file_orig.write(f'{d1[0]},{d1[1]}')
-        file_interp.write(f'{d2[0]},{d2[1]}')
+#     for d1 in wps:#zip(wps, new_points):
+#         file_orig.write(f'{d1[0]},{d1[1]}')
+#         # file_interp.write(f'{d2[0]},{d2[1]}')
 
-    file_orig.close()
-    file_interp.close()
+#     file_orig.close()
+#     # file_interp.close()
 
-    if not os.path.exists('wp.csv') or not os.path.exists('wp_interp.csv'):
-        print("FILES NOT SAVED!")
-    else:
-        print("Files saved successfully...")
+#     if not os.path.exists('wp.csv'):# or not os.path.exists('wp_interp.csv'):
+#         print("FILES NOT SAVED!")
+#     else:
+#         print("Files saved successfully...")
 
 def main(args=None):
     rclpy.init(args=args)
 
     waypoint_logger = WaypointLogger()
-    atexit.register(log_csv)
+    # atexit.register(log_csv)
+    atexit.register(shutdown)
 
     rclpy.spin(waypoint_logger)
     waypoint_logger.destroy_node()
     rclpy.shutdown()
 
-    waypoint_logger.log_csv()
+    # waypoint_logger.log_csv()
+    # waypoint_logger.log_csv()
 
 if __name__ == '__main__':
     main()
