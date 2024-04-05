@@ -90,14 +90,14 @@ private:
 
     // hyperparams
     double map_x = 300.0; // width of occ 
-    double map_y = 100.0; // beight of occ
+    double map_y = 125.0; // beight of occ
     double map_resolution = 0.01;
     const int total_boxes = std::floor( ( map_x * map_y ) ); 
 
     double map_wid_px = std::floor(map_x / 2.);
     double map_wid_m = map_wid_px * map_resolution;
 
-    int dilation = 25;
+    int dilation = 15;
 
     int num_nodes = 800;
     double max_expansion_dist = 0.5;

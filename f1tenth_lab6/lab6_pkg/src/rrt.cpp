@@ -256,7 +256,7 @@ void RRT::pure_pursuit(const std::vector<RRT_Node>& path ){
 
         // TODO: publish drive message, don't forget to limit the steering angle.
         auto drive_msg = ackermann_msgs::msg::AckermannDriveStamped();
-        drive_msg.drive.speed = 0.6;
+        drive_msg.drive.speed = 3.0;
         drive_msg.drive.steering_angle = max(-clip_val, min(gamma*P, clip_val));
         drive_pub_->publish(drive_msg);
 
@@ -651,6 +651,7 @@ inline void parse_wps(const std::string& fname, vector<WayPoint>& wps, visualiza
 
         if (!file.is_open()) {
             std::cerr << "Failed to open file: " << fname << std::endl;
+            std::cerr << "Move wps.csv to reflex expected! >>> " << fname << std::endl;
             return; // Exit the function if the file couldn't be opened
         }
         else{
