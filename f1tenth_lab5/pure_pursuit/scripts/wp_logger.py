@@ -3,11 +3,8 @@ import rclpy
 from rclpy.node import Node
 
 from nav_msgs.msg import Odometry
-import tf_transformations
 
 import os
-import matplotlib.pyplot as plt
-import numpy as np
 import atexit
 
 from scipy.interpolate import splprep, splev
