@@ -17,7 +17,7 @@ from sensor_msgs.msg import LaserScan
 
 import os
 from nav_msgs.msg import Odometry, Path
-from transforms3d.euler import quat2euler
+from transforms3d.euler import quat2euler, euler2quat
 from visualization_msgs.msg import MarkerArray, Marker
 
 # TODO CHECK: include needed ROS msg type headers and libraries
@@ -32,21 +32,21 @@ class mpc_config:
     # ---------------------------------------------------
     # TODO: you may need to tune the following matrices
     Rk: list = field(
-        default_factory=lambda: np.diag([0.01, 100.0])
+        default_factory=lambda: np.diag([0.010, 0.50])
     )  # input cost matrix, penalty for inputs - [accel, steering]
     Rdk: list = field(
-        default_factory=lambda: np.diag([0.01, 100.0])
+        default_factory=lambda: np.diag([0.010, 0.50])
     )  # input difference cost matrix, penalty for change of inputs - [accel, steering]
     Qk: list = field(
-        default_factory=lambda: np.diag([13.5, 13.5, 13.0, 5.5])
+        default_factory=lambda: np.diag([20.5, 20.5, 4.5, 8.5])
     )  # state error cost matrix, for the the next (T) prediction time steps [x, y, v, yaw]
     Qfk: list = field(
-        default_factory=lambda: np.diag([13.5, 13.5, 13.0, 5.5])
+        default_factory=lambda: np.diag([20.5, 20.5, 4.5, 8.5])
     )  # final state error matrix, penalty  for the final state constraints: [x, y, v, yaw]
     # ---------------------------------------------------
 
     N_IND_SEARCH: int = 20  # Search index number
-    DTK: float = 0.1  # time step [s] kinematic
+    DTK: float = 0.05  # time step [s] kinematic
     dlk: float = 0.03  # dist step [m] kinematic
     LENGTH: float = 0.58  # Length of the vehicle [m]
     WIDTH: float = 0.31  # Width of the vehicle [m]
@@ -85,17 +85,20 @@ class MPC(Node):
         
         load_path = os.path.join( os.getcwd() + "/src/f1tenth_lab7/mpc/wp.csv" )
         self.get_logger().info(f"Attempting to load data from: {load_path}")
+        
         self.waypoints = np.loadtxt(load_path, delimiter=", ")
-        self.waypoints = self.waypoints[::50, :]
-        print(self.waypoints)
+        self.waypoints = self.waypoints[::5]
+        unique_rows_mask = np.unique(self.waypoints[:, :2], axis=0, return_index=True)[1]
+        self.waypoints = self.waypoints[np.argsort(unique_rows_mask)]
+        
+        self.waypoints[:, 2] =  (self.waypoints[:, 2] + 2*np.pi) % 2*np.pi 
+                    
         
         self.config = mpc_config()
         self.odelta = None
         self.oa = None
         self.init_flag = 0
         
-        
-
         # initialize MPC problem
         self.mpc_prob_init()
         
@@ -103,18 +106,26 @@ class MPC(Node):
         
         markers = MarkerArray()
         
-        for i in range(self.waypoints.shape[0]):
+        for i in range(self.waypoints.shape[0]-1):
             
             marker = Marker()
             
             marker.header.frame_id = "map"
             marker.ns = "map"
             marker.id = i
-            marker.type = 1
+            marker.type = 0
             marker.action = 0
             marker.pose.position.x = self.waypoints[i, 0]
             marker.pose.position.y = self.waypoints[i, 1]
             marker.pose.position.z = -0.025
+            
+            quat = euler2quat(0, 0, self.waypoints[i, 3])
+            
+            marker.pose.orientation.w = quat[0] 
+            marker.pose.orientation.x = quat[1]
+            marker.pose.orientation.y = quat[2]
+            marker.pose.orientation.z = quat[3]
+            
             marker.scale.x = 0.08
             marker.scale.y = 0.08
             marker.scale.z = 0.08
@@ -125,38 +136,21 @@ class MPC(Node):
         
         self.waypoints_pub_.publish(markers)
         
-    def publish_horizon(self, closest_wp):
+    def publish_horizon(self, path):
         
-        marker = Marker()
-            
-        marker.header.frame_id = "map"
-        marker.ns = "starting_point"
-        marker.id = 1
-        marker.type = 2
-        marker.action = 0
-        marker.pose.position.x = self.waypoints[closest_wp, 0]
-        marker.pose.position.y = self.waypoints[closest_wp, 1]
-        marker.scale.x = 0.2 
-        marker.scale.y = 0.2
-        marker.scale.z = 0.6
-        marker.color.r = 1.0
-        marker.color.a = 1.0
+        horizon_path = Path()
+        horizon_path.header.frame_id = "map"
         
-        self.starting_point_pub_.publish(marker)
-        
-        path = Path()
-        path.header.frame_id = "map"
-        
-        for i in range(closest_wp, closest_wp+self.config.N_IND_SEARCH):
+        for i in range(len(path)):
             
             pose = PoseStamped()
             
-            pose.pose.position.x = self.waypoints[i, 0]        
-            pose.pose.position.y = self.waypoints[i, 1]  
+            pose.pose.position.x = path[0, i]        
+            pose.pose.position.y = path[1, i]  
             
-            path.poses.append(pose)    
+            horizon_path.poses.append(pose)    
             
-        self.path_pub_.publish(path)    
+        self.path_pub_.publish(horizon_path)    
         
 
     def pose_callback(self, pose_msg):
@@ -185,28 +179,19 @@ class MPC(Node):
         # Start out with getting a set T every time, assuming u make it through all those waypoints
         # next, start by picking the column whose x, y you are closest to
         
-        start_row = 0
-        distances = np.linalg.norm( self.waypoints[:, 0:2] - np.array([[vehicle_state.x, vehicle_state.y]]), axis=1 )
-        closest_wp = np.argmin(distances)
-        print(closest_wp)
         
-        self.publish_horizon(closest_wp)
-        
-        # ref_x = self.waypoints[closest_wp:self.config.N_IND_SEARCH, 0]
-        # ref_y = self.waypoints[closest_wp:self.config.N_IND_SEARCH, 1]
-        # ref_yaw = self.waypoints[closest_wp:self.config.N_IND_SEARCH, 3]
-        # ref_v = self.waypoints[closest_wp:self.config.N_IND_SEARCH, 2]
-        
-        ref_x = self.waypoints[:, 0].T
-        ref_y = self.waypoints[:, 1].T
-        ref_yaw = self.waypoints[:, 3].T
-        ref_v = self.waypoints[:, 2].T
+        ref_x = self.waypoints[:, 0]
+        ref_y = self.waypoints[:, 1]
+        ref_v = self.waypoints[:, 2]
+        ref_yaw = self.waypoints[:, 3]
         
         # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         
         ref_path = self.calc_ref_trajectory(vehicle_state, ref_x, ref_y, ref_yaw, ref_v)
         x0 = [vehicle_state.x, vehicle_state.y, vehicle_state.v, vehicle_state.yaw]
 
+        self.publish_horizon(ref_path)
+        
         # TODO: solve the MPC control problem
         (
             self.oa,
@@ -273,23 +258,9 @@ class MPC(Node):
         # Formulate and create the finite-horizon optimal control problem (objective function)
         # The FTOCP has the horizon of T timesteps
         
-        # Checking the shapes of your control and state variables
-        print(f"uk shape: {self.uk.shape}")
-        print(f"xk shape: {self.xk.shape}")
-
-        # Checking the shape of your parameters and block matrices
-        print(f"R_block shape: {R_block.shape}")
-        print(f"Q_block shape: {Q_block.shape}")
-        print(f"Rd_block shape: {Rd_block.shape}")
-
-        # For the reference trajectory and initial state
-        print(f"ref_traj_k shape: {self.ref_traj_k.shape}")
-        print(f"x0k shape: {self.x0k.shape}")
-
-
         # --------------------------------------------------------
         # TODO: fill in the objectives here, you should be using cvxpy.quad_form() somehwhere
-        # for i in range(1, self.config.TK-1):
+
         # TODO: Objective part 1: Influence of the control inputs: Inputs u multiplied by the penalty R
         objective += cvxpy.quad_form(cvxpy.vec(self.uk), R_block)
 
@@ -298,10 +269,6 @@ class MPC(Node):
 
         # TODO: Objective part 3: Difference from one control input to the next control input weighted by Rd
         objective += cvxpy.quad_form(cvxpy.vec(self.uk[:, 1:] - self.uk[:, :-1]), Rd_block)
-        
-        # terminal
-        # objective += cvxpy.quad_form(self.xk[:, i], Q_block[-1])
-        # objective += cvxpy.quad_form(self.uk[:, i], R_block[-1])
         
         # --------------------------------------------------------
 
@@ -359,7 +326,7 @@ class MPC(Node):
         #       This constraint should be based on a few variables:
         #       self.xk, self.Ak_, self.Bk_, self.uk, and self.Ck_
         constraints += [ cvxpy.vec(self.xk[:, 1:]) == self.Ak_ @ cvxpy.vec(self.xk[:, :-1]) + 
-                        self.Bk_ @ cvxpy.vec(self.uk) + self.Ck_]
+                        self.Bk_ @ cvxpy.vec(self.uk) + self.Ck_ ]
             
             # C block???
         
@@ -368,7 +335,7 @@ class MPC(Node):
         #       cannot exceed steering angle speed limit. Should be based on:
         #       self.uk, self.config.MAX_DSTEER, self.config.DTK
         # for i in range(1, self.config.TK):
-        constraints += [self.uk[0, 1:] <= self.uk[0, :-1] + self.config.DTK ]
+        constraints += [ cvxpy.abs(self.uk[0, 1:] - self.uk[0, :-1]) / self.config.DTK <= self.config.MAX_DSTEER ]
 
         # TODO: Constraint part 3:
         #       Add constraints on upper and lower bounds of states and inputs
@@ -379,14 +346,14 @@ class MPC(Node):
         constraints += [ self.xk[:, 0] == self.x0k ]
         
         # speed
-        constraints += [self.xk[2, :] >= self.config.MIN_SPEED ]
-        constraints += [self.xk[2, :] <= self.config.MAX_SPEED ]
+        constraints += [ self.xk[2, :] >= self.config.MIN_SPEED ]
+        constraints += [ self.xk[2, :] <= self.config.MAX_SPEED ]
             
         # steering
-        constraints += [self.uk[0, :] <= self.config.MAX_STEER ]
+        constraints += [ self.uk[0, :] <= self.config.MAX_STEER ]
         
         # acceleration 
-        constraints += [self.uk[1, :] <= self.config.MAX_ACCEL]
+        constraints += [ self.uk[1, :] <= self.config.MAX_ACCEL]
         
          
         # -------------------------------------------------------------
@@ -414,6 +381,7 @@ class MPC(Node):
 
         # Find nearest index/setpoint from where the trajectories are calculated
         _, _, _, ind = nearest_point(np.array([state.x, state.y]), np.array([cx, cy]).T)
+        # ind = np.argmin(np.linalg.norm(np.array([[state.x], [state.y]]) - np.vstack((cx, cy)), axis=0))
 
         # Load the initial parameters from the setpoint into the trajectory
         ref_traj[0, 0] = cx[ind]
@@ -427,10 +395,19 @@ class MPC(Node):
         ind_list = int(ind) + np.insert(
             np.cumsum(np.repeat(dind, self.config.TK)), 0, 0
         ).astype(int)
+        # ind_list = np.array([ min(ind + i*dind, len(self.waypoints)-1)
+        #                      for i in range(self.config.TK+1)], dtype=int)
+        # print(ind_list)
         ind_list[ind_list >= ncourse] -= ncourse
         ref_traj[0, :] = cx[ind_list]
         ref_traj[1, :] = cy[ind_list]
         ref_traj[2, :] = sp[ind_list]
+        cyaw[cyaw - state.yaw > 4.5] = np.abs(
+            cyaw[cyaw - state.yaw > 4.5] - (2 * np.pi)
+        )
+        cyaw[cyaw - state.yaw < -4.5] = np.abs(
+            cyaw[cyaw - state.yaw < -4.5] + (2 * np.pi)
+        )
         cyaw[cyaw - state.yaw > 4.5] = np.abs(
             cyaw[cyaw - state.yaw > 4.5] - (2 * np.pi)
         )

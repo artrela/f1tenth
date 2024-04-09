@@ -37,6 +37,7 @@ class WaypointLogger(Node):
     
     def save_waypoint(self, data):
         
+        
         roll, pitch, yaw = quat2euler([
             data.pose.pose.orientation.w,
             data.pose.pose.orientation.x,
