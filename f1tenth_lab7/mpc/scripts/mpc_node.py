@@ -27,27 +27,29 @@ from visualization_msgs.msg import MarkerArray, Marker
 class mpc_config:
     NXK: int = 4  # length of kinematic state vector: z = [x, y, v, yaw]
     NU: int = 2  # length of input vector: u = = [steering, acceleration]
-    TK: int = 8  # finite time horizon length kinematic
+    TK: int = 3  # finite time horizon length kinematic
 
     # ---------------------------------------------------
     # TODO: you may need to tune the following matrices
     Rk: list = field(
-        default_factory=lambda: np.diag([0.010, 0.50])
+        default_factory=lambda: np.diag([0.010, 5.0])
     )  # input cost matrix, penalty for inputs - [accel, steering]
     Rdk: list = field(
-        default_factory=lambda: np.diag([0.010, 0.50])
+        default_factory=lambda: np.diag([0.010, 20.0])
     )  # input difference cost matrix, penalty for change of inputs - [accel, steering]
     Qk: list = field(
-        default_factory=lambda: np.diag([20.5, 20.5, 4.5, 8.5])
+        # default_factory=lambda: np.diag([20.5, 20.5, 4.5, 8.5])
+        default_factory=lambda: np.diag([13.5, 13.5, 13.0, 5.5])
     )  # state error cost matrix, for the the next (T) prediction time steps [x, y, v, yaw]
     Qfk: list = field(
-        default_factory=lambda: np.diag([20.5, 20.5, 4.5, 8.5])
+        # default_factory=lambda: np.diag([20.5, 20.5, 4.5, 8.5])
+        default_factory=lambda: np.diag([13.5, 13.5, 13.0, 5.5])
     )  # final state error matrix, penalty  for the final state constraints: [x, y, v, yaw]
     # ---------------------------------------------------
 
     N_IND_SEARCH: int = 20  # Search index number
-    DTK: float = 0.05  # time step [s] kinematic
-    dlk: float = 0.03  # dist step [m] kinematic
+    DTK: float = 0.1  # time step [s] kinematic
+    dlk: float = 0.05  # dist step [m] kinematic
     LENGTH: float = 0.58  # Length of the vehicle [m]
     WIDTH: float = 0.31  # Width of the vehicle [m]
     WB: float = 0.33  # Wheelbase [m]
@@ -56,7 +58,7 @@ class mpc_config:
     MAX_DSTEER: float = np.deg2rad(180.0)  # maximum steering speed [rad/s]
     MAX_SPEED: float = 6.0  # maximum speed [m/s]
     MIN_SPEED: float = 0.0  # minimum backward speed [m/s]
-    MAX_ACCEL: float = 3.0  # maximum acceleration [m/ss]
+    MAX_ACCEL: float = 2.0  # maximum acceleration [m/ss]
 
 
 @dataclass
@@ -86,14 +88,13 @@ class MPC(Node):
         load_path = os.path.join( os.getcwd() + "/src/f1tenth_lab7/mpc/wp.csv" )
         self.get_logger().info(f"Attempting to load data from: {load_path}")
         
-        self.waypoints = np.loadtxt(load_path, delimiter=", ")
-        self.waypoints = self.waypoints[::5]
-        unique_rows_mask = np.unique(self.waypoints[:, :2], axis=0, return_index=True)[1]
-        self.waypoints = self.waypoints[np.argsort(unique_rows_mask)]
+        self.waypoints = np.loadtxt(load_path, delimiter=",")
+        self.waypoints[:,2] = 1.0
+        # unique_rows_mask = np.unique(self.waypoints[:, :2], axis=0, return_index=True)[1]
+        # self.waypoints = self.waypoints[np.argsort(unique_rows_mask)]
         
-        self.waypoints[:, 2] =  (self.waypoints[:, 2] + 2*np.pi) % 2*np.pi 
+        # self.waypoints[:, 3] =  (self.waypoints[:, 3] + 2*np.pi) % 2*np.pi 
                     
-        
         self.config = mpc_config()
         self.odelta = None
         self.oa = None
@@ -169,7 +170,7 @@ class MPC(Node):
             x = pose_msg.pose.pose.position.x,
             y = pose_msg.pose.pose.position.y,
             v = pose_msg.twist.twist.linear.x,
-            yaw = yaw
+            yaw = (yaw + 2*np.pi) % 2*np.pi
         )
 
         # TODO: Calculate the next reference trajectory for the next T steps
@@ -183,7 +184,7 @@ class MPC(Node):
         ref_x = self.waypoints[:, 0]
         ref_y = self.waypoints[:, 1]
         ref_v = self.waypoints[:, 2]
-        ref_yaw = self.waypoints[:, 3]
+        ref_yaw = (self.waypoints[:, 3] + 2*np.pi) % 2*np.pi
         
         # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         
@@ -335,7 +336,7 @@ class MPC(Node):
         #       cannot exceed steering angle speed limit. Should be based on:
         #       self.uk, self.config.MAX_DSTEER, self.config.DTK
         # for i in range(1, self.config.TK):
-        constraints += [ cvxpy.abs(self.uk[0, 1:] - self.uk[0, :-1]) / self.config.DTK <= self.config.MAX_DSTEER ]
+        constraints += [ cvxpy.abs(self.uk[1, 1:] - self.uk[1, :-1]) / self.config.DTK <= self.config.MAX_DSTEER ]
 
         # TODO: Constraint part 3:
         #       Add constraints on upper and lower bounds of states and inputs
@@ -350,10 +351,10 @@ class MPC(Node):
         constraints += [ self.xk[2, :] <= self.config.MAX_SPEED ]
             
         # steering
-        constraints += [ self.uk[0, :] <= self.config.MAX_STEER ]
+        constraints += [ self.uk[1, :] <= self.config.MAX_STEER ]
         
         # acceleration 
-        constraints += [ self.uk[1, :] <= self.config.MAX_ACCEL]
+        constraints += [ self.uk[0, :] <= self.config.MAX_ACCEL]
         
          
         # -------------------------------------------------------------
